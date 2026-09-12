@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Counter: метод dec()</title>
+</head>
+<body>
+    <h2>ДЗ: Взаємодія з Counter через метод dec() — локальна мережа Hardhat</h2>
+
+    <button id="connectBtn" type="button">Підключити MetaMask</button>
+    <p id="accountStatus">Статус: Не авторизовано</p>
+
+    <hr>
+
+    <label for="contractAddress">Адреса розгорнутого Counter у локальній мережі:</label><br>
+    <input id="contractAddress" type="text" size="48" placeholder="0x...">
+    <button id="loadContractBtn" type="button" disabled>Підключити Counter</button>
+
+    <p>Поточне значення лічильника: <strong id="counterValue">—</strong></p>
+    <button id="decrementBtn" type="button" disabled>Зменшити на 1 (dec)</button>
+
+    <h3>Статус операції:</h3>
+    <p id="output">Підключіть гаманець і Counter.</p>
+
+    <!-- Підключаємо ethers.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+    <script>
+        const hardhatChainId = 31337n;
+        const contractABI = [
+            "function x() view returns (uint256)",
+            "function dec()",
+        ];
+
+        const connectBtn = document.getElementById("connectBtn");
+        const loadContractBtn = document.getElementById("loadContractBtn");
+        const decrementBtn = document.getElementById("decrementBtn");
+        const accountStatus = document.getElementById("accountStatus");
+        const contractAddressInput = document.getElementById("contractAddress");
+        const counterValue = document.getElementById("counterValue");
+        const output = document.getElementById("output");
+
+        let provider, signer, contract;
+
+        contractAddressInput.value = localStorage.getItem("counterAddress") || "";
+
+        function disconnectWallet(message = "Статус: Не авторизовано") {
+            signer = undefined;
+            contract = undefined;
+            loadContractBtn.disabled = true;
+            decrementBtn.disabled = true;
+            counterValue.textContent = "—";
+            accountStatus.textContent = message;
+        }
+
+        function errorMessage(error) {
+            return error.reason || error.info?.error?.message || error.shortMessage || error.message;
+        }
+
+        async function updateCounterValue() {
+            const value = await contract.x();
+            counterValue.textContent = value.toString();
+            return value;
+        }
+
+        connectBtn.addEventListener("click", async () => {
+            if (!window.ethereum) {
+                disconnectWallet("MetaMask не знайдено.");
+                return;
+            }
+
+            try {
+                provider = new ethers.BrowserProvider(window.ethereum);
+                const network = await provider.getNetwork();
+                if (network.chainId !== hardhatChainId) {
+                    disconnectWallet("Оберіть локальну мережу Hardhat (Chain ID 31337) у MetaMask.");
+                    return;
+                }
+
+                const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+                signer = await provider.getSigner(accounts[0]);
+                accountStatus.textContent = "Авторизовано: " + accounts[0];
+                loadContractBtn.disabled = false;
+                output.textContent = "Вкажіть адресу Counter і натисніть «Підключити Counter».";
+            } catch (error) {
+                disconnectWallet("Помилка авторизації: " + errorMessage(error));
+            }
+        });
+
+        loadContractBtn.addEventListener("click", async () => {
+            try {
+                const address = ethers.getAddress(contractAddressInput.value.trim());
+                contract = new ethers.Contract(address, contractABI, signer);
+                localStorage.setItem("counterAddress", address);
+                await updateCounterValue();
+                decrementBtn.disabled = false;
+                output.textContent = "Counter підключено. Натисніть dec() для зменшення значення.";
+            } catch (error) {
+                contract = undefined;
+                decrementBtn.disabled = true;
+                output.textContent = "Не вдалося підключити Counter: " + errorMessage(error);
+            }
+        });
+
+        decrementBtn.addEventListener("click", async () => {
+            decrementBtn.disabled = true;
+            try {
+                const transaction = await contract.dec();
+                output.textContent = "Транзакція надіслана: " + transaction.hash + ". Очікуємо підтвердження…";
+                await transaction.wait();
+                const value = await updateCounterValue();
+                output.textContent = "dec() виконано успішно. Поточне значення: " + value;
+            } catch (error) {
+                // На значенні 0 контракт відхиляє транзакцію через require у dec().
+                output.textContent = "Очікувана помилка: " + errorMessage(error);
+            } finally {
+                // Кнопка лишається активною при 0, щоб продемонструвати revert.
+                decrementBtn.disabled = !contract;
+            }
+        });
+
+        if (window.ethereum) {
+            window.ethereum.on("accountsChanged", (accounts) => {
+                disconnectWallet(accounts.length ? "Акаунт змінено. Підключіть гаманець повторно." : "Гаманець відключено.");
+            });
+
+            window.ethereum.on("chainChanged", () => {
+                disconnectWallet("Мережу змінено. Підключіть гаманець повторно.");
+            });
+        }
+    </script>
+</body>
+</html>
